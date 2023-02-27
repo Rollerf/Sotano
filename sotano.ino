@@ -42,6 +42,7 @@ Portal *PortalSotano;
 
 // STATE VARIABLES
 boolean commandReceived = false;
+char *state = "";
 
 void setup()
 {
@@ -62,33 +63,44 @@ void setup()
   PortalSotano = new Portal(PORTAL_PIN, LIMIT_SWITCH_OPENED, LIMIT_SWITCH_CLOSED);
 }
 
+char *getState()
+{
+  if (PortalSotano->getLsClosed() && !PortalSotano->getLsOpened())
+  {
+    return DOOR_CLOSED;
+  }
+
+  if (PortalSotano->getLsOpened() && !PortalSotano->getLsClosed())
+  {
+    return DOOR_OPENED;
+  }
+
+  if (PortalSotano->getLsOpened() && PortalSotano->getLsClosed())
+  {
+    return DOOR_AJAR;
+  }
+
+  if (!PortalSotano->getLsClosed() && !PortalSotano->getLsOpened())
+  {
+    return LIMIT_SWITCHES_ERROR;
+  }
+}
+
 void publishInfo()
 {
   if (tPublishInfo->IN(START))
   {
     StaticJsonDocument<192> jsonDoc;
     JsonObject portalJO = jsonDoc.createNestedObject("portal");
-
     String payload = "";
-    char *state = "x";
 
-    if (PortalSotano->getLsClosed() && !PortalSotano->getLsOpened())
+    if (state == getState())
     {
-      state = DOOR_CLOSED;
+      tPublishInfo->IN(RESET);
+      return;
     }
-    else if (PortalSotano->getLsOpened() && !PortalSotano->getLsClosed())
-    {
-      state = DOOR_OPENED;
-    }
-    else if (!PortalSotano->getLsOpened() && !PortalSotano->getLsClosed())
-    {
-      state = DOOR_AJAR;
-    }
-
-    if (PortalSotano->getLsClosed() && PortalSotano->getLsOpened())
-    {
-      state = LIMIT_SWITCHES_ERROR;
-    }
+    
+    state = getState();
 
     portalJO["estado"] = state;
 
