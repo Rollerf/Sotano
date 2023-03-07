@@ -46,7 +46,7 @@ char *state = "";
 
 void setup()
 {
-  Serial.begin(115200);
+  // Serial.begin(115200);
 
   WIFIConnection();
 
@@ -88,18 +88,18 @@ char *getState()
 
 void publishInfo()
 {
+  if (state == getState())
+  {
+    tPublishInfo->IN(RESET);
+    return;
+  }
+
   if (tPublishInfo->IN(START))
   {
     StaticJsonDocument<192> jsonDoc;
     JsonObject portalJO = jsonDoc.createNestedObject("portal");
     String payload = "";
 
-    if (state == getState())
-    {
-      tPublishInfo->IN(RESET);
-      return;
-    }
-    
     state = getState();
 
     portalJO["estado"] = state;
@@ -129,7 +129,7 @@ void loop()
   ArduinoOTA.handle();
   client.loop();
   yield();
-
+  checkMqttConnection();
   publishInfo();
 
   if (commandReceived)
