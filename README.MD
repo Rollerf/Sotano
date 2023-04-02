@@ -24,3 +24,5 @@ const char *client_name = "";
 | Closed limit switch | D1            | 4                     |
 | Open limit switch   | D2            | 5                     |
 | Engine output       | D5            | 14                    |
+| PZEM_RX pin         | D6            | 12                    |
+| PZEM_TX pin         | D7            | 13                    |

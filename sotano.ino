@@ -9,9 +9,7 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <Timer.h>
-
-WiFiClient espClient;
-PubSubClient client(espClient);
+#include <PZEM004Tv30.h>
 
 // CONSTANTS:
 const boolean START = true;
@@ -25,27 +23,39 @@ char *CLOSE = "cerrar";
 char *STOP = "parar";
 
 // TIMERS:
-TON *tPublishInfo;
+TON *tPublishInfoDoor;
 TON *tCheckConnection;
 TON *tPressButton;
+TON *tPublishInfoDiferential;
 
 const unsigned long ONE_SECOND = 1000;
+const unsigned long FIVE_SECOND = 5000;
 const unsigned long ONE_MINUTE = 60000;
 
 // INPUTS
 #define LIMIT_SWITCH_OPENED 4
 #define LIMIT_SWITCH_CLOSED 5
+#define PZEM_RX_PIN D6
+#define PZEM_TX_PIN D7
 
 // OUTPUTS
 #define PORTAL_PIN 14
+
+// Objects
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+PZEM004Tv30 pzem(PZEM_TX_PIN, PZEM_RX_PIN, 0x01);
+
 Portal *PortalSotano;
 
 // STATE VARIABLES
 boolean commandReceived = false;
+char *state = "";
 
 void setup()
 {
-  Serial.begin(115200);
+  // Serial.begin(115200);
 
   WIFIConnection();
 
@@ -55,47 +65,84 @@ void setup()
 
   Serial.println("Connected to the WiFi network");
 
-  tPublishInfo = new TON(ONE_SECOND);
+  tPublishInfoDoor = new TON(ONE_SECOND);
+  tPublishInfoDiferential = new TON(FIVE_SECOND);
   tCheckConnection = new TON(ONE_MINUTE);
   tPressButton = new TON(ONE_SECOND);
 
   PortalSotano = new Portal(PORTAL_PIN, LIMIT_SWITCH_OPENED, LIMIT_SWITCH_CLOSED);
 }
 
+char *getState()
+{
+  if (PortalSotano->getLsClosed() && !PortalSotano->getLsOpened())
+  {
+    return DOOR_CLOSED;
+  }
+
+  if (PortalSotano->getLsOpened() && !PortalSotano->getLsClosed())
+  {
+    return DOOR_OPENED;
+  }
+
+  if (PortalSotano->getLsOpened() && PortalSotano->getLsClosed())
+  {
+    return DOOR_AJAR;
+  }
+
+  if (!PortalSotano->getLsClosed() && !PortalSotano->getLsOpened())
+  {
+    return LIMIT_SWITCHES_ERROR;
+  }
+}
+
+float wattsToMilliamps(float watts)
+{
+  return (43 * watts) / 10.4;
+}
+
 void publishInfo()
 {
-  if (tPublishInfo->IN(START))
+  if (tPublishInfoDiferential->IN(START))
   {
-    StaticJsonDocument<192> jsonDoc;
-    JsonObject portalJO = jsonDoc.createNestedObject("portal");
-
+    StaticJsonDocument<80> jsonDoc;
     String payload = "";
-    char *state = "x";
 
-    if (PortalSotano->getLsClosed() && !PortalSotano->getLsOpened())
-    {
-      state = DOOR_CLOSED;
-    }
-    else if (PortalSotano->getLsOpened() && !PortalSotano->getLsClosed())
-    {
-      state = DOOR_OPENED;
-    }
-    else if (!PortalSotano->getLsOpened() && !PortalSotano->getLsClosed())
-    {
-      state = DOOR_AJAR;
-    }
+    float watts = pzem.power();
+    float mAmps = wattsToMilliamps(watts);
+    int volts = pzem.voltage();
 
-    if (PortalSotano->getLsClosed() && PortalSotano->getLsOpened())
-    {
-      state = LIMIT_SWITCHES_ERROR;
-    }
+    jsonDoc["corriente"] = mAmps;
+    jsonDoc["voltaje"] = volts;
+    jsonDoc["potencia"] = watts;
+
+    serializeJson(jsonDoc, payload);
+    client.publish(topicDiferential, (char *)payload.c_str());
+
+    tPublishInfoDiferential->IN(RESET);
+  }
+
+  if (state == getState())
+  {
+    tPublishInfoDoor->IN(RESET);
+    return;
+  }
+
+  if (tPublishInfoDoor->IN(START))
+  {
+    Serial.println("Publishing info portal");
+    StaticJsonDocument<100> jsonDoc;
+    JsonObject portalJO = jsonDoc.createNestedObject("portal");
+    String payload = "";
+
+    state = getState();
 
     portalJO["estado"] = state;
 
     serializeJson(jsonDoc, payload);
     client.publish(topicState, (char *)payload.c_str());
 
-    tPublishInfo->IN(RESET);
+    tPublishInfoDoor->IN(RESET);
   }
 }
 
@@ -117,7 +164,7 @@ void loop()
   ArduinoOTA.handle();
   client.loop();
   yield();
-
+  checkMqttConnection();
   publishInfo();
 
   if (commandReceived)
@@ -209,6 +256,7 @@ void MQTTConnection()
       Serial.print("failed with state ");
       Serial.print(client.state());
       delay(2000);
+      ESP.restart();
     }
   }
 
