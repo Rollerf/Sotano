@@ -27,6 +27,7 @@ TON *tPublishInfoDoor;
 TON *tCheckConnection;
 TON *tPressButton;
 TON *tPublishInfoDiferential;
+TON *tPublishInfoConsumoCasa;
 
 const unsigned long ONE_SECOND = 1000;
 const unsigned long FIVE_SECOND = 5000;
@@ -45,7 +46,8 @@ const unsigned long ONE_MINUTE = 60000;
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-PZEM004Tv30 pzem(PZEM_TX_PIN, PZEM_RX_PIN, 0x01);
+PZEM004Tv30 pzemDiferencial(PZEM_TX_PIN, PZEM_RX_PIN, 0x01);
+PZEM004Tv30 pzemConsumoCasa(PZEM_TX_PIN, PZEM_RX_PIN, 0x02);
 
 Portal *PortalSotano;
 
@@ -67,6 +69,7 @@ void setup()
 
   tPublishInfoDoor = new TON(ONE_SECOND);
   tPublishInfoDiferential = new TON(FIVE_SECOND);
+  tPublishInfoConsumoCasa = new TON(FIVE_SECOND);
   tCheckConnection = new TON(ONE_MINUTE);
   tPressButton = new TON(ONE_SECOND);
 
@@ -108,9 +111,9 @@ void publishInfo()
     StaticJsonDocument<80> jsonDoc;
     String payload = "";
 
-    float watts = pzem.power();
+    float watts = pzemDiferencial.power();
     float mAmps = wattsToMilliamps(watts);
-    int volts = pzem.voltage();
+    int volts = pzemDiferencial.voltage();
 
     jsonDoc["corriente"] = mAmps;
     jsonDoc["voltaje"] = volts;
@@ -120,6 +123,25 @@ void publishInfo()
     client.publish(topicDiferential, (char *)payload.c_str());
 
     tPublishInfoDiferential->IN(RESET);
+  }
+
+  if (tPublishInfoConsumoCasa->IN(START))
+  {
+    StaticJsonDocument<80> jsonDoc;
+    String payload = "";
+
+    float watts = pzemConsumoCasa.power();
+    float amps = pzemConsumoCasa.current();
+    int volts = pzemConsumoCasa.voltage();
+
+    jsonDoc["corriente"] = amps;
+    jsonDoc["voltaje"] = volts;
+    jsonDoc["potencia"] = watts;
+
+    serializeJson(jsonDoc, payload);
+    client.publish(topicConsumoCasaSotano, (char *)payload.c_str());
+
+    tPublishInfoConsumoCasa->IN(RESET);
   }
 
   if (state == getState())
